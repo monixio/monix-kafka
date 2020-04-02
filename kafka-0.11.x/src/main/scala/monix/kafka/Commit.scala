@@ -25,15 +25,13 @@ import org.apache.kafka.clients.consumer.OffsetCommitCallback
   * */
 trait Commit {
   def commitBatchSync(batch: Map[TopicPartition, Long]): Task[Unit]
-  def commitBatchAsync(batch: Map[TopicPartition, Long], callback: OffsetCommitCallback): Task[Unit]
-  final def commitBatchAsync(batch: Map[TopicPartition, Long]): Task[Unit] = commitBatchAsync(batch, null)
+  def commitBatchAsync(batch: Map[TopicPartition, Long]): Task[Unit]
 }
 
 private[kafka] object Commit {
 
   val empty: Commit = new Commit {
     override def commitBatchSync(batch: Map[TopicPartition, Long]): Task[Unit] = Task.unit
-    override def commitBatchAsync(batch: Map[TopicPartition, Long], callback: OffsetCommitCallback): Task[Unit] =
-      Task.unit
+    override def commitBatchAsync(batch: Map[TopicPartition, Long]): Task[Unit] = Task.unit
   }
 }

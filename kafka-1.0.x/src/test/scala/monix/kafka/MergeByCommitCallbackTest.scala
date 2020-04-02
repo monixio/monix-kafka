@@ -18,7 +18,7 @@ class MergeByCommitCallbackTest extends FunSuite with KafkaTestKit with ScalaChe
 
   val commitCallbacks: List[Commit] = List.fill(4)(new Commit {
     override def commitBatchSync(batch: Map[TopicPartition, Long]): Task[Unit] = Task.unit
-    override def commitBatchAsync(batch: Map[TopicPartition, Long], callback: OffsetCommitCallback): Task[Unit] =
+    override def commitBatchAsync(batch: Map[TopicPartition, Long]): Task[Unit] =
       Task.unit
   })
 

@@ -16,7 +16,6 @@
 
 package monix.kafka
 
-import cats.effect.concurrent.Semaphore
 import com.typesafe.scalalogging.StrictLogging
 import monix.eval.{Coeval, Task}
 import monix.execution.Ack.{Continue, Stop}
@@ -47,7 +46,6 @@ final class KafkaProducerSink[K, V] private (
       implicit val scheduler: Scheduler = s
       private[this] val p = producer.memoize
       private[this] var isActive = true
-      private[this] val semaphore: Task[Semaphore[Task]] = Semaphore[Task](parallelism).memoize
 
       def onNext(list: Seq[ProducerRecord[K, V]]): Future[Ack] =
         self.synchronized {
@@ -56,12 +54,8 @@ final class KafkaProducerSink[K, V] private (
             val sendTask: Task[Seq[Option[RecordMetadata]]] =
               if (parallelism == 1)
                 Task.traverse(list)(p.value().send(_))
-              else {
-                for {
-                  s <- semaphore
-                  res <- Task.wander(list)(r => s.withPermit(p.value().send(r)))
-                } yield res
-              }
+              else
+                Task.wanderN(parallelism)(list)(r => p.value().send(r))
 
             val recovered = sendTask.redeem(
               ex => {

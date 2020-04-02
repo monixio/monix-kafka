@@ -194,6 +194,9 @@ import scala.concurrent.duration._
   *        Specifies when the commit should happen, like before we receive the
   *        acknowledgement from downstream, or afterwards.
   *
+  * @param pollInterval is the `monix.observable.poll.interval.ms` setting.
+  *         Specifies time between KafkaConsumer#poll call attempts.
+  *
   * @param properties map of other properties that will be passed to
   *        the underlying kafka client. Any properties not explicitly handled
   *        by this object can be set via the map, but in case of a duplicate
@@ -238,6 +241,7 @@ final case class KafkaConsumerConfig(
   observableCommitType: ObservableCommitType,
   observableCommitOrder: ObservableCommitOrder,
   observableSeekToEndOnStart: Boolean,
+  pollInterval: FiniteDuration,
   properties: Map[String, String]) {
 
   def toMap: Map[String, String] = properties ++ Map(
@@ -419,6 +423,7 @@ object KafkaConsumerConfig {
       observableCommitType = ObservableCommitType(config.getString("monix.observable.commit.type")),
       observableCommitOrder = ObservableCommitOrder(config.getString("monix.observable.commit.order")),
       observableSeekToEndOnStart = config.getBoolean("monix.observable.seekEnd.onStart"),
+      pollInterval = config.getInt("monix.observable.poll.interval.ms").millis,
       properties = Map.empty
     )
   }

@@ -141,6 +141,38 @@ class MonixKafkaTopicListTest extends FunSuite with KafkaTestKit {
     }
   }
 
+  test("manual async commit consumer test when subscribed to topics list") {
+    withRunningKafka {
+
+      val count = 10000
+      val topicName = "monix-kafka-manual-commit-tests"
+
+      val producer = KafkaProducerSink[String, String](producerCfg, io)
+      val consumer = KafkaConsumerObservable.manualCommit[String, String](consumerCfg, List(topicName))
+
+      val pushT = Observable
+        .range(0, count)
+        .map(msg => new ProducerRecord(topicName, "obs", msg.toString))
+        .bufferIntrospective(1024)
+        .consumeWith(producer)
+
+      val listT = consumer
+        .executeOn(io)
+        .bufferTumbling(count)
+        .map { messages =>
+          messages.map(_.record.value()) -> CommittableOffsetBatch(messages.map(_.committableOffset))
+        }
+        .mapEval { case (values, batch) => Task.shift *> batch.commitAsync().map(_ => values -> batch.offsets) }
+        .headL
+
+      val ((result, offsets), _) =
+        Await.result(Task.parZip2(listT.executeAsync, pushT.executeAsync).runToFuture, 60.seconds)
+
+      val properOffsets = Map(new TopicPartition(topicName, 0) -> 10000)
+      assert(result.map(_.toInt).sum === (0 until count).sum && offsets === properOffsets)
+    }
+  }
+
   test("publish to closed producer when subscribed to topics list") {
     withRunningKafka {
       val producer = KafkaProducer[String, String](producerCfg, io)
@@ -156,6 +188,37 @@ class MonixKafkaTopicListTest extends FunSuite with KafkaTestKit {
 
       val (first, second, third) = Await.result(result.runToFuture, 60.seconds)
       assert(first.isDefined && second.isRight && third.isEmpty)
+    }
+  }
+
+  test("slow batches processing doesn't cause rebalancing") {
+    withRunningKafka {
+      val count = 10000
+
+      val consumerConfig = consumerCfg.copy(
+        maxPollInterval = 200.millis,
+        pollInterval = 100.millis
+      )
+
+      val producer = KafkaProducerSink[String, String](producerCfg, io)
+      val consumer = KafkaConsumerObservable[String, String](consumerConfig, List(topicName)).executeOn(io)
+
+      val pushT = Observable
+        .range(0, count)
+        .map(msg => new ProducerRecord(topicName, "obs", msg.toString))
+        .bufferIntrospective(1024)
+        .consumeWith(producer)
+
+      val listT = consumer
+        .take(count)
+        .map(_.value())
+        .bufferTumbling(count / 4)
+        .mapEval(s => Task.sleep(2.second) >> Task.delay(s))
+        .flatMap(Observable.fromIterable)
+        .toListL
+
+      val (result, _) = Await.result(Task.parZip2(listT.executeAsync, pushT.executeAsync).runToFuture, 60.seconds)
+      assert(result.map(_.toInt).sum === (0 until count).sum)
     }
   }
 }
