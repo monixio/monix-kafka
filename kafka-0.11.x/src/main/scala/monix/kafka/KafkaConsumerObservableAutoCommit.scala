@@ -34,7 +34,7 @@ import scala.util.{Failure, Success}
   */
 final class KafkaConsumerObservableAutoCommit[K, V] private[kafka] (
   override protected val config: KafkaConsumerConfig,
-  override protected val consumer: Task[Consumer[K, V]])
+  override protected val consumerT: Task[Consumer[K, V]])
     extends KafkaConsumerObservable[K, V, ConsumerRecord[K, V]] {
 
   /* Based on the [[KafkaConsumerConfig.observableCommitType]] it
@@ -68,12 +68,16 @@ final class KafkaConsumerObservableAutoCommit[K, V] private[kafka] (
       s.executeAsync { () =>
         val ackFuture =
           try consumer.synchronized {
+            val assignment = consumer.assignment()
             if (cancelable.isCanceled) Stop
             else {
+              consumer.resume(assignment)
               val next = blocking(consumer.poll(pollTimeoutMillis))
+              consumer.pause(assignment)
               if (shouldCommitBefore) consumerCommit(consumer)
               // Feeding the observer happens on the Subscriber's scheduler
               // if any asynchronous boundaries happen
+              isAcked = false
               Observer.feed(out, next.asScala)(out.scheduler)
             }
           } catch {
@@ -83,6 +87,7 @@ final class KafkaConsumerObservableAutoCommit[K, V] private[kafka] (
 
         ackFuture.syncOnComplete {
           case Success(ack) =>
+            isAcked = true
             // The `streamError` flag protects against contract violations
             // (i.e. onSuccess/onError should happen only once).
             // Not really required, but we don't want to depend on the
@@ -106,6 +111,7 @@ final class KafkaConsumerObservableAutoCommit[K, V] private[kafka] (
             }
 
           case Failure(ex) =>
+            isAcked = true
             asyncCb.onError(ex)
         }
       }

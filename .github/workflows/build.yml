@@ -1,0 +1,45 @@
+name: build
+
+on: [push, pull_request]
+
+jobs:
+
+  tests:
+    name: scala-${{ matrix.scala }} jdk-${{ matrix.java }} tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+      matrix:
+        java: [8]
+        scala: [2.11.12, 2.12.10]
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: olafurpg/setup-scala@v10
+        with:
+          java-version: "adopt@1.${{ matrix.java }}"
+
+      - name: Cache SBT Coursier directory
+        uses: actions/cache@v1
+        with:
+          path: ~/.cache/coursier/v1
+          key: ${{ runner.os }}-coursier-${{ hashFiles('**/*.sbt') }}
+          restore-keys: |
+            ${{ runner.os }}-coursier-
+      - name: Cache SBT directory
+        uses: actions/cache@v1
+        with:
+          path: ~/.sbt
+          key: |
+            ${{ runner.os }}-sbt-${{ hashFiles('project/build.properties') }}-${{ hashFiles('project/plugins.sbt') }}
+          restore-keys: ${{ runner.os }}-sbt-
+
+      - name: Run Tests for Kafka 0.10.x, Java ${{ matrix.java }} and Scala ${{ matrix.scala }}
+        run: sbt -J-Xmx6144m  kafka10/test
+
+      - name: Run Tests for Kafka 0.11.x, Java ${{ matrix.java }} and Scala ${{ matrix.scala }}
+        run: sbt -J-Xmx6144m kafka11/test
+
+      - name: Run Tests for Kafka 1.x.x, Java ${{ matrix.java }} and Scala ${{ matrix.scala }}
+        run: sbt -J-Xmx6144m kafka1x/test

@@ -96,7 +96,7 @@ class SerializationTest extends FunSuite with KafkaTestKit {
         .map(_.value())
         .toListL
 
-      val (result, _) = Await.result(Task.parZip2(listT, pushT).runToFuture, 60.seconds)
+      val (result, _) = Await.result(Task.parZip2(listT, pushT).runToFuture, 70.seconds)
       assert(result.map(_.value.toInt).sum === (0 until count).filter(_ % 2 == 0).sum)
     }
   }

@@ -16,6 +16,7 @@
 
 package monix.kafka
 
+import cats.effect.Resource
 import monix.eval.Task
 import monix.execution.Ack.{Continue, Stop}
 import monix.execution.{Ack, Callback, Cancelable}
@@ -38,6 +39,10 @@ trait KafkaConsumerObservable[K, V, Out] extends Observable[Out] {
   protected def config: KafkaConsumerConfig
   protected def consumer: Task[Consumer[K, V]]
 
+  /** Creates a task that polls the source, then feeds the downstream */
+  @volatile
+  protected var isAcked = true
+
   /** Creates a task that polls the source, then feeds the downstream
     * subscriber, returning the resulting acknowledgement
     */
@@ -59,23 +64,28 @@ trait KafkaConsumerObservable[K, V, Out] extends Observable[Out] {
   private def feedTask(out: Subscriber[Out]): Task[Unit] = {
     Task.create { (scheduler, cb) =>
       implicit val s = scheduler
-      val feedTask = consumer.flatMap { c =>
-        // Skipping all available messages on all partitions
-        if (config.observableSeekOnStart.isSeekEnd) c.seekToEnd()
-        else if (config.observableSeekOnStart.isSeekBeginning) c.seekToBeginning()
-        // A task to execute on both cancellation and normal termination
-        val onCancel = cancelTask(c)
-        runLoop(c, out).guarantee(onCancel)
-      }
-      feedTask.runAsync(cb)
+      val startConsuming =
+        Resource
+          .make(consumer) { c =>
+            // Forced asynchronous boundary
+            Task.evalAsync(consumer.synchronized(blocking(c.close())))
+          }
+          .use { c =>
+            // Skipping all available messages on all partitions
+            if (config.observableSeekOnStart.isSeekEnd) c.seekToEnd()
+            else if (config.observableSeekOnStart.isSeekBeginning) c.seekToBeginning()
+            // A task to execute on both cancellation and normal termination
+            runLoop(c, out)
+          }
+      startConsuming.runAsync(cb)
     }
   }
 
-  /* Returns a task that continuously polls the `KafkaConsumer` for
-   * new messages and feeds the given subscriber.
-   *
-   * Creates an asynchronous boundary on every poll.
-   */
+  /** Returns a task that continuously polls the `KafkaConsumer` for
+    * new messages and feeds the given subscriber.
+    *
+    * Creates an asynchronous boundary on every poll.
+    */
   private def runLoop(consumer: Consumer[K, V], out: Subscriber[Out]): Task[Unit] = {
     ackTask(consumer, out).flatMap {
       case Stop => Task.unit
@@ -83,21 +93,6 @@ trait KafkaConsumerObservable[K, V, Out] extends Observable[Out] {
     }
   }
 
-  /* Returns a `Task` that triggers the closing of the
-   * Kafka Consumer connection.
-   */
-  private def cancelTask(consumer: Consumer[K, V]): Task[Unit] = {
-    // Forced asynchronous boundary
-    val cancelTask = Task.evalAsync {
-      consumer.synchronized(blocking(consumer.close()))
-    }
-
-    // By applying memoization, we are turning this
-    // into an idempotent action, such that we are
-    // guaranteed that consumer.close() happens
-    // at most once
-    cancelTask.memoize
-  }
 }
 
 object KafkaConsumerObservable {

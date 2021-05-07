@@ -256,20 +256,18 @@ val observable =
 
 Enjoy!
 
-### Caveats
+### Internal poll heartbeat
 
-[Issue#101](https://github.com/monix/monix-kafka/issues/101)
-Starting from Kafka 0.10.1.0, there is `max.poll.interval.ms` setting:
-
-    The maximum delay between invocations of poll() when using consumer group management. 
-    This places an upper bound on the amount of time that the consumer can be idle before 
-    fetching more records. If poll() is not called before expiration of this timeout, 
-    then the consumer is considered failed and  the group will rebalance in order 
+Starting from Kafka _0.10.1.0_, there is `max.poll.interval.ms` setting that defines the maximum delay between
+invocations of poll(), if it is not called in that interval, then the consumer is considered failed and  the group will rebalance in order 
     to reassign the partitions to another member.
 
-Since, monix-kafka backpressures until all records has been processed. 
-This could be a problem if processing takes time.
-You can reduce `max.poll.records` if you are experiencing this issue.
+This was an [issue](https://github.com/monix/monix-kafka/issues/101) in `monix-kafka`, 
+since poll is not called until all previous consumed ones were processed, so that slow downstream subscribers
+ were in risk of being kicked off the consumer group indefinitely.
+
+It is resolved in `1.0.0-RC8` by introducing an internal poll heartbeat interval
+that runs in the background keeping the consumer alive. 
 
 ## How can I contribute to Monix-Kafka?
 

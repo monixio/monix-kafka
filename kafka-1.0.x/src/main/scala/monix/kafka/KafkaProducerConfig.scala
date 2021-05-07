@@ -194,7 +194,7 @@ import scala.concurrent.duration._
   *        by this object can be set via the map, but in case of a duplicate
   *        a value set on the case class will overwrite value set via properties.
   */
-case class KafkaProducerConfig(
+final case class KafkaProducerConfig(
   bootstrapServers: List[String],
   acks: Acks,
   bufferMemoryInBytes: Int,
@@ -272,7 +272,7 @@ case class KafkaProducerConfig(
   )
 
   def toJavaMap: java.util.Map[String, Object] =
-    toMap.filter(_._2 != null).map{case (a, b) =>(a, b.asInstanceOf[AnyRef])}.asJava
+    toMap.filter(_._2 != null).map { case (a, b) => (a, b.asInstanceOf[AnyRef]) }.asJava
 
   def toProperties: Properties = {
     val props = new Properties()

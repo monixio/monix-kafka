@@ -66,7 +66,6 @@ class MonixKafkaTopicRegexTest extends FunSuite with KafkaTestKit {
   }
 
   test("listen for one message when subscribed to topics regex") {
-
     withRunningKafka {
       val producer = KafkaProducer[String, String](producerCfg, io)
       val consumer = KafkaConsumerObservable[String, String](consumerCfg, topicsRegex).executeOn(io)

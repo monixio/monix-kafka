@@ -18,8 +18,8 @@ package monix.kafka
 
 import java.io.File
 import java.util.Properties
-
 import com.typesafe.config.{Config, ConfigFactory}
+import monix.execution.internal.InternalApi
 import monix.kafka.config._
 
 import scala.jdk.CollectionConverters._
@@ -212,7 +212,7 @@ import scala.concurrent.duration._
   *        by this object can be set via the map, but in case of a duplicate
   *        a value set on the case class will overwrite value set via properties.
   */
-final case class KafkaConsumerConfig(
+case class KafkaConsumerConfig(
   bootstrapServers: List[String],
   fetchMinBytes: Int,
   fetchMaxBytes: Int,
@@ -299,8 +299,16 @@ final case class KafkaConsumerConfig(
     "retry.backoff.ms" -> retryBackoffTime.toMillis.toString
   )
 
+  private[kafka] var pollHeartbeatRate: FiniteDuration = 15.millis
+
+  @InternalApi
+  private[kafka] def withPollHeartBeatRate(interval: FiniteDuration): KafkaConsumerConfig = {
+    pollHeartbeatRate = interval
+    this
+  }
+
   def toJavaMap: java.util.Map[String, Object] =
-    toMap.filter(_._2 != null).map{case (a, b) =>(a, b.asInstanceOf[AnyRef])}.asJava
+    toMap.filter(_._2 != null).map { case (a, b) => (a, b.asInstanceOf[AnyRef]) }.asJava
 
   def toProperties: Properties = {
     val props = new Properties()

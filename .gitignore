@@ -16,3 +16,7 @@ project/plugins/project/
 .scala_dependencies
 .worksheet
 .idea
+
+.bsp/sbt.json
+
+.DS_Store

@@ -1,3 +1,13 @@
+
+## Version 1.0.0-RC7 (January 23, 2021)
+
+Depends on Monix 3.3.0
+
+Main changes:
+
+- PR #248: Enable '-Xfatal-warnings' flag (internal)
+- PR #245: Use Kafka Producer Consumer interfaces
+
 ## Version 1.0.0-RC6 (April 18, 2020)
 
 Depends on Monix 3.x

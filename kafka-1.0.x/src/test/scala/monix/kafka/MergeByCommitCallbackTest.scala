@@ -9,7 +9,6 @@ import org.scalatest.{FunSuite, Matchers}
 import scala.concurrent.duration._
 import scala.concurrent.Await
 import monix.execution.Scheduler.Implicits.global
-import org.apache.kafka.clients.consumer.OffsetCommitCallback
 import org.apache.kafka.common.TopicPartition
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckDrivenPropertyChecks
@@ -19,7 +18,7 @@ class MergeByCommitCallbackTest extends FunSuite with KafkaTestKit with ScalaChe
   val commitCallbacks: List[Commit] = List.fill(4)(new Commit {
     override def commitBatchSync(batch: Map[TopicPartition, Long]): Task[Unit] = Task.unit
 
-    override def commitBatchAsync(batch: Map[TopicPartition, Long], callback: OffsetCommitCallback): Task[Unit] =
+    override def commitBatchAsync(batch: Map[TopicPartition, Long]): Task[Unit] =
       Task.unit
   })
 

@@ -106,7 +106,7 @@ class MonixKafkaTopicListTest extends FunSuite with KafkaTestKit {
     }
   }
 
-  test("manual commit consumer test when subscribed to topics list") {
+  test("manual commitSync consumer test when subscribed to topics list") {
     withRunningKafka {
       val count = 10000
       val topicName = "monix-kafka-manual-commit-tests"
@@ -124,13 +124,45 @@ class MonixKafkaTopicListTest extends FunSuite with KafkaTestKit {
         .executeOn(io)
         .bufferTumbling(count)
         .map { messages => messages.map(_.record.value()) -> CommittableOffsetBatch(messages.map(_.committableOffset)) }
-        .mapEval { case (values, batch) => Task.shift *> batch.commitSync().map(_ => values -> batch.offsets) }
+        .mapEval { case (values, batch) => batch.commitSync().map(_ => values -> batch.offsets) }
         .headL
 
       val ((result, offsets), _) =
         Await.result(Task.parZip2(listT, pushT).runToFuture, 60.seconds)
 
-      val properOffsets = Map(new TopicPartition(topicName, 0) -> 10000)
+      val properOffsets = Map(new TopicPartition(topicName, 0) -> count)
+      assert(result.map(_.toInt).sum === (0 until count).sum && offsets === properOffsets)
+    }
+  }
+
+  test("manual async commit consumer test when subscribed to topics list") {
+    withRunningKafka {
+
+      val count = 10000
+      val topicName = "monix-kafka-manual-commit-tests"
+
+      val producer = KafkaProducerSink[String, String](producerCfg, io)
+      val consumer = KafkaConsumerObservable.manualCommit[String, String](consumerCfg, List(topicName))
+
+      val pushT = Observable
+        .range(0, count)
+        .map(msg => new ProducerRecord(topicName, "obs", msg.toString))
+        .bufferIntrospective(1024)
+        .consumeWith(producer)
+
+      val listT = consumer
+        .executeOn(io)
+        .bufferTumbling(count)
+        .map { messages =>
+          messages.map(_.record.value()) -> CommittableOffsetBatch(messages.map(_.committableOffset))
+        }
+        .mapEval { case (values, batch) => Task.shift *> batch.commitAsync().map(_ => values -> batch.offsets) }
+        .headL
+
+      val ((result, offsets), _) =
+        Await.result(Task.parZip2(listT.executeAsync, pushT.executeAsync).runToFuture, 60.seconds)
+
+      val properOffsets = Map(new TopicPartition(topicName, 0) -> count)
       assert(result.map(_.toInt).sum === (0 until count).sum && offsets === properOffsets)
     }
   }
@@ -152,4 +184,5 @@ class MonixKafkaTopicListTest extends FunSuite with KafkaTestKit {
       assert(first.isDefined && second.isRight && third.isEmpty)
     }
   }
+
 }

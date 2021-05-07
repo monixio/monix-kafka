@@ -89,7 +89,9 @@ class MonixKafkaTopicRegexTest extends FunSuite with KafkaTestKit {
       val count = 10000
 
       val producer = KafkaProducerSink[String, String](producerCfg, io)
-      val consumer = KafkaConsumerObservable[String, String](consumerCfg, topicsRegex).executeOn(io).take(count)
+      val consumer = KafkaConsumerObservable[String, String](consumerCfg, topicsRegex)
+        .executeOn(io)
+        .take(count)
 
       val pushT = Observable
         .range(0, count)

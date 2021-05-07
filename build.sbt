@@ -1,3 +1,5 @@
+import pl.project13.scala.sbt.JmhPlugin
+
 val monixVersion = "3.3.0"
 
 val allProjects = List(
@@ -197,8 +199,7 @@ lazy val commonDependencies = Seq(
     // For testing ...
     "ch.qos.logback" % "logback-classic" % "1.2.3" % "test",
     "org.scalatest" %% "scalatest" % "3.0.9" % "test",
-    "org.scalacheck" %% "scalacheck" % "1.15.2" % "test"
-  )
+    "org.scalacheck" %% "scalacheck" % "1.15.2" % "test")
 )
 
 lazy val monixKafka = project.in(file("."))
@@ -213,7 +214,7 @@ lazy val kafka1x = project.in(file("kafka-1.0.x"))
   .settings(
     name := "monix-kafka-1x",
     libraryDependencies ++= {
-      if (!(scalaVersion.value startsWith "2.13")) Seq("net.manub" %% "scalatest-embedded-kafka" % "1.0.0" % "test" exclude ("log4j", "log4j"))
+      if (!(scalaVersion.value startsWith "2.13")) Seq("net.manub" %% "scalatest-embedded-kafka" % "1.1.1" % "test" exclude ("log4j", "log4j"))
       else Seq.empty[ModuleID]
     },
     libraryDependencies += "org.apache.kafka" %  "kafka-clients" % "1.0.2" exclude("org.slf4j","slf4j-log4j12") exclude("log4j", "log4j")
@@ -226,7 +227,7 @@ lazy val kafka11 = project.in(file("kafka-0.11.x"))
   .settings(
     name := "monix-kafka-11",
     libraryDependencies ++= {
-      if (!(scalaVersion.value startsWith "2.13")) Seq("net.manub" %% "scalatest-embedded-kafka" % "1.0.0" % "test" exclude ("log4j", "log4j"))
+      if (!(scalaVersion.value startsWith "2.13")) Seq("net.manub" %% "scalatest-embedded-kafka" % "1.1.1" % "test" exclude ("log4j", "log4j"))
       else Seq.empty[ModuleID]
     },
     libraryDependencies += "org.apache.kafka" %  "kafka-clients" % "0.11.0.3" exclude("org.slf4j","slf4j-log4j12") exclude("log4j", "log4j")
@@ -255,6 +256,22 @@ lazy val kafka9 = project.in(file("kafka-0.9.x"))
       "org.apache.kafka" %  "kafka-clients" % "0.9.0.1" exclude("org.slf4j","slf4j-log4j12") exclude("log4j", "log4j")
     )
   )
+
+lazy val benchmarks = project.in(file("benchmarks"))
+  .settings(sharedSettings)
+  .settings(commonDependencies)
+  .settings(
+    scalacOptions += "-Ypartial-unification",
+    name := "benchmarks",
+    organization := "io.monix",
+    scalaVersion := "2.12.10",
+    libraryDependencies ++= Seq("org.scala-lang.modules" %% "scala-collection-compat" % "2.3.2")
+  )
+  .enablePlugins(JmhPlugin)
+  .aggregate(kafka1x)
+  .dependsOn(kafka1x)
+
+scalacOptions += "-Ypartial-unification"
 
 //------------- For Release
 

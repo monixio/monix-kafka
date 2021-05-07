@@ -17,7 +17,6 @@
 package monix.kafka
 
 import monix.eval.Task
-import org.apache.kafka.clients.consumer.OffsetCommitCallback
 import org.apache.kafka.common.TopicPartition
 
 /** Represents offset for specified topic and partition that can be
@@ -46,12 +45,6 @@ final class CommittableOffset private[kafka] (
     * to use batched commit with [[CommittableOffsetBatch]] class.
     */
   def commitAsync(): Task[Unit] = commitCallback.commitBatchAsync(Map(topicPartition -> offset))
-
-  /** Asynchronously commits [[offset]] to Kafka. It is recommended
-    * to use batched commit with [[CommittableOffsetBatch]] class.
-    */
-  def commitAsync(callback: OffsetCommitCallback): Task[Unit] =
-    commitCallback.commitBatchAsync(Map(topicPartition -> offset), callback)
 }
 
 object CommittableOffset {

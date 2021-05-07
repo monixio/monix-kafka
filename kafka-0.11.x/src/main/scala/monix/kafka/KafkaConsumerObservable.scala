@@ -18,7 +18,7 @@ package monix.kafka
 
 import monix.eval.Task
 import monix.execution.Ack.{Continue, Stop}
-import monix.execution.{Ack, Callback, Cancelable}
+import monix.execution.{Ack, Callback, Cancelable, Scheduler}
 import monix.kafka.config.ObservableCommitOrder
 import monix.reactive.Observable
 import monix.reactive.observers.Subscriber
@@ -26,6 +26,7 @@ import org.apache.kafka.clients.consumer.internals.NoOpConsumerRebalanceListener
 import org.apache.kafka.clients.consumer.{Consumer, ConsumerRecord, KafkaConsumer}
 
 import scala.jdk.CollectionConverters._
+import scala.concurrent.duration._
 import scala.concurrent.blocking
 import scala.util.matching.Regex
 
@@ -38,7 +39,11 @@ import scala.util.matching.Regex
   */
 trait KafkaConsumerObservable[K, V, Out] extends Observable[Out] {
   protected def config: KafkaConsumerConfig
-  protected def consumer: Task[Consumer[K, V]]
+
+  protected def consumerT: Task[Consumer[K, V]]
+
+  @volatile
+  protected var isAcked = true
 
   /** Creates a task that polls the source, then feeds the downstream
     * subscriber, returning the resulting acknowledgement
@@ -51,6 +56,7 @@ trait KafkaConsumerObservable[K, V, Out] extends Observable[Out] {
     val callback = new Callback[Throwable, Unit] {
       def onSuccess(value: Unit): Unit =
         out.onComplete()
+
       def onError(ex: Throwable): Unit =
         out.onError(ex)
     }
@@ -61,23 +67,25 @@ trait KafkaConsumerObservable[K, V, Out] extends Observable[Out] {
   private def feedTask(out: Subscriber[Out]): Task[Unit] = {
     Task.create { (scheduler, cb) =>
       implicit val s = scheduler
-      val feedTask = consumer.flatMap { c =>
-        // Skipping all available messages on all partitions
-        if (config.observableSeekOnStart.isSeekEnd) c.seekToEnd(Nil.asJavaCollection)
-        else if (config.observableSeekOnStart.isSeekBeginning) c.seekToBeginning(Nil.asJavaCollection)
-        // A task to execute on both cancellation and normal termination
-        val onCancel = cancelTask(c)
-        runLoop(c, out).guarantee(onCancel)
-      }
-      feedTask.runAsync(cb)
+      val startConsuming =
+        consumerT.bracket { c =>
+          // Skipping all available messages on all partitions
+          if (config.observableSeekOnStart.isSeekEnd) c.seekToEnd(Nil.asJavaCollection)
+          else if (config.observableSeekOnStart.isSeekBeginning) c.seekToBeginning(Nil.asJavaCollection)
+          Task.race(runLoop(c, out), pollHeartbeat(c).loopForever).void
+        } { consumer =>
+          // Forced asynchronous boundary
+          Task.evalAsync(consumer.synchronized(blocking(consumer.close())))
+        }
+      startConsuming.runAsync(cb)
     }
   }
 
-  /* Returns a task that continuously polls the `KafkaConsumer` for
-   * new messages and feeds the given subscriber.
-   *
-   * Creates an asynchronous boundary on every poll.
-   */
+  /** Returns a task that continuously polls the `KafkaConsumer` for
+    * new messages and feeds the given subscriber.
+    *
+    * Creates an asynchronous boundary on every poll.
+    */
   private def runLoop(consumer: Consumer[K, V], out: Subscriber[Out]): Task[Unit] = {
     ackTask(consumer, out).flatMap {
       case Stop => Task.unit
@@ -85,20 +93,35 @@ trait KafkaConsumerObservable[K, V, Out] extends Observable[Out] {
     }
   }
 
-  /* Returns a `Task` that triggers the closing of the
-   * Kafka Consumer connection.
-   */
-  private def cancelTask(consumer: Consumer[K, V]): Task[Unit] = {
-    // Forced asynchronous boundary
-    val cancelTask = Task.evalAsync {
-      consumer.synchronized(blocking(consumer.close()))
-    }
-
-    // By applying memoization, we are turning this
-    // into an idempotent action, such that we are
-    // guaranteed that consumer.close() happens
-    // at most once
-    cancelTask.memoize
+  /** Returns task that constantly polls the `KafkaConsumer` in case subscriber
+    * is still processing last fed batch.
+    * This allows producer process commit calls and also keeps consumer alive even
+    * with long batch processing.
+    *
+    * If polling fails the error is reported to the subscriber through the scheduler.
+    *
+    * @see [[https://cwiki.apache.org/confluence/display/KAFKA/KIP-62%3A+Allow+consumer+to+send+heartbeats+from+a+background+thread]]
+    */
+  private def pollHeartbeat(consumer: Consumer[K, V])(implicit scheduler: Scheduler): Task[Unit] = {
+    Task.sleep(config.pollHeartbeatRate) >>
+      Task.eval {
+        if (!isAcked) {
+          consumer.synchronized {
+            // needed in order to ensure that the consumer assignment
+            // is paused, meaning that no messages will get lost.
+            val assignment = consumer.assignment()
+            consumer.pause(assignment)
+            val records = blocking(consumer.poll(0))
+            if (!records.isEmpty) {
+              val errorMsg = s"Received ${records.count()} unexpected messages."
+              throw new IllegalStateException(errorMsg)
+            }
+          }
+        }
+      }.onErrorHandleWith { ex =>
+        Task.now(scheduler.reportFailure(ex)) >>
+          Task.sleep(1.seconds)
+      }
   }
 }
 
@@ -106,13 +129,12 @@ object KafkaConsumerObservable {
 
   /** Builds a [[KafkaConsumerObservable]] instance.
     *
-    * @param cfg is the [[KafkaConsumerConfig]] needed for initializing the
-    *        consumer; also make sure to see `monix/kafka/default.conf` for
-    *        the default values being used.
-    *
+    * @param cfg      is the [[KafkaConsumerConfig]] needed for initializing the
+    *                 consumer; also make sure to see `monix/kafka/default.conf` for
+    *                 the default values being used.
     * @param consumer is a factory for the
-    *        `org.apache.kafka.clients.consumer.KafkaConsumer`
-    *        instance to use for consuming from Kafka
+    *                 `org.apache.kafka.clients.consumer.KafkaConsumer`
+    *                 instance to use for consuming from Kafka
     */
   def apply[K, V](
     cfg: KafkaConsumerConfig,
@@ -121,10 +143,9 @@ object KafkaConsumerObservable {
 
   /** Builds a [[KafkaConsumerObservable]] instance.
     *
-    * @param cfg is the [[KafkaConsumerConfig]] needed for initializing the
-    *        consumer; also make sure to see `monix/kafka/default.conf` for
-    *        the default values being used.
-    *
+    * @param cfg    is the [[KafkaConsumerConfig]] needed for initializing the
+    *               consumer; also make sure to see `monix/kafka/default.conf` for
+    *               the default values being used.
     * @param topics is the list of Kafka topics to subscribe to.
     */
   def apply[K, V](cfg: KafkaConsumerConfig, topics: List[String])(implicit
@@ -137,10 +158,9 @@ object KafkaConsumerObservable {
 
   /** Builds a [[KafkaConsumerObservable]] instance.
     *
-    * @param cfg is the [[KafkaConsumerConfig]] needed for initializing the
-    *        consumer; also make sure to see `monix/kafka/default.conf` for
-    *        the default values being used.
-    *
+    * @param cfg         is the [[KafkaConsumerConfig]] needed for initializing the
+    *                    consumer; also make sure to see `monix/kafka/default.conf` for
+    *                    the default values being used.
     * @param topicsRegex is the pattern of Kafka topics to subscribe to.
     */
   def apply[K, V](cfg: KafkaConsumerConfig, topicsRegex: Regex)(implicit
@@ -165,14 +185,13 @@ object KafkaConsumerObservable {
     *     .subscribe()
     * }}}
     *
-    * @param cfg is the [[KafkaConsumerConfig]] needed for initializing the
-    *        consumer; also make sure to see `monix/kafka/default.conf` for
-    *        the default values being used. Auto commit will disabled and
-    *        observable commit order will turned to [[monix.kafka.config.ObservableCommitOrder.NoAck NoAck]] forcibly!
-    *
+    * @param cfg      is the [[KafkaConsumerConfig]] needed for initializing the
+    *                 consumer; also make sure to see `monix/kafka/default.conf` for
+    *                 the default values being used. Auto commit will disabled and
+    *                 observable commit order will turned to [[monix.kafka.config.ObservableCommitOrder.NoAck NoAck]] forcibly!
     * @param consumer is a factory for the
-    *        `org.apache.kafka.clients.consumer.KafkaConsumer`
-    *        instance to use for consuming from Kafka
+    *                 `org.apache.kafka.clients.consumer.KafkaConsumer`
+    *                 instance to use for consuming from Kafka
     */
   def manualCommit[K, V](
     cfg: KafkaConsumerConfig,
@@ -196,11 +215,10 @@ object KafkaConsumerObservable {
     *     .subscribe()
     * }}}
     *
-    * @param cfg is the [[KafkaConsumerConfig]] needed for initializing the
-    *        consumer; also make sure to see `monix/kafka/default.conf` for
-    *        the default values being used. Auto commit will disabled and
-    *        observable commit order will turned to [[monix.kafka.config.ObservableCommitOrder.NoAck NoAck]] forcibly!
-    *
+    * @param cfg    is the [[KafkaConsumerConfig]] needed for initializing the
+    *               consumer; also make sure to see `monix/kafka/default.conf` for
+    *               the default values being used. Auto commit will disabled and
+    *               observable commit order will turned to [[monix.kafka.config.ObservableCommitOrder.NoAck NoAck]] forcibly!
     * @param topics is the list of Kafka topics to subscribe to.
     */
   def manualCommit[K, V](cfg: KafkaConsumerConfig, topics: List[String])(implicit
@@ -225,11 +243,10 @@ object KafkaConsumerObservable {
     *     .subscribe()
     * }}}
     *
-    * @param cfg is the [[KafkaConsumerConfig]] needed for initializing the
-    *        consumer; also make sure to see `monix/kafka/default.conf` for
-    *        the default values being used. Auto commit will disabled and
-    *        observable commit order will turned to [[monix.kafka.config.ObservableCommitOrder.NoAck NoAck]] forcibly!
-    *
+    * @param cfg         is the [[KafkaConsumerConfig]] needed for initializing the
+    *                    consumer; also make sure to see `monix/kafka/default.conf` for
+    *                    the default values being used. Auto commit will disabled and
+    *                    observable commit order will turned to [[monix.kafka.config.ObservableCommitOrder.NoAck NoAck]] forcibly!
     * @param topicsRegex is the pattern of Kafka topics to subscribe to.
     */
   def manualCommit[K, V](cfg: KafkaConsumerConfig, topicsRegex: Regex)(implicit

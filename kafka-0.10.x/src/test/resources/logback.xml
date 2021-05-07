@@ -8,4 +8,15 @@
     <root level="WARN">
         <appender-ref ref="STDOUT" />
     </root>
+
+    <logger name="monix.kafka" level="info" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    <logger name="org.apache.kafka" level="error" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    <logger name="org.apache.zookeeper" level="error" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+
 </configuration>
