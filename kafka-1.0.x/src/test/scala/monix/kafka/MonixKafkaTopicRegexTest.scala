@@ -17,10 +17,13 @@
 
 package monix.kafka
 
+import java.util.concurrent.TimeUnit
+
 import monix.eval.Task
 import monix.execution.Scheduler.Implicits.global
 import monix.kafka.config.AutoOffsetReset
 import monix.reactive.Observable
+import net.manub.embeddedkafka.EmbeddedKafka
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.scalatest.FunSuite
 
@@ -105,4 +108,21 @@ class MonixKafkaTopicRegexTest extends FunSuite with KafkaTestKit {
       assert(result.map(_.toInt).sum === (0 until count).sum)
     }
   }
+
+  test("observable should become completed after kafka broker shutdown") {
+    EmbeddedKafka.start()
+    assert(EmbeddedKafka.isRunning)
+    val consumerCfgFixed = consumerCfg.copy(
+      maxPollInterval = 5.seconds,
+      connectionsMaxIdleTime = 30.seconds,
+      reconnectBackoffTime = 1.second
+    )
+    val consumerSubscription = KafkaConsumerObservable[String, String](consumerCfgFixed, topicsRegex).executeOn(io)
+      .foreach(_ => ())
+    EmbeddedKafka.stop()
+    assert(!EmbeddedKafka.isRunning)
+    TimeUnit.SECONDS.sleep(40)
+    assert(consumerSubscription.isCompleted)
+  }
+
 }
