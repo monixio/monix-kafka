@@ -23,13 +23,13 @@ import monix.kafka.config.AutoOffsetReset
 import monix.reactive.Observable
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.clients.producer.ProducerRecord
-import org.scalatest.FunSuite
 
 import scala.collection.JavaConverters._
 import scala.concurrent.Await
 import scala.concurrent.duration._
+import org.scalatest.funsuite.AnyFunSuite
 
-class MonixKafkaTopicListTest extends FunSuite with KafkaTestKit {
+class MonixKafkaTopicListTest extends AnyFunSuite with KafkaTestKit {
   val topicName = "monix-kafka-tests"
 
   val producerCfg = KafkaProducerConfig.default.copy(

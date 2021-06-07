@@ -1,8 +1,8 @@
 package monix.kafka
 
-import org.scalatest.FunSuite
+import org.scalatest.funsuite.AnyFunSuite
 
-class ConfigTest extends FunSuite {
+class ConfigTest extends AnyFunSuite {
   test("overwrite properties with values from producer config") {
     val config =
       KafkaProducerConfig.default

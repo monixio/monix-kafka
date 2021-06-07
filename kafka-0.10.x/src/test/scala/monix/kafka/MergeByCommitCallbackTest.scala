@@ -4,7 +4,6 @@ import monix.eval.Task
 import monix.kafka.config.AutoOffsetReset
 import monix.reactive.Observable
 import org.apache.kafka.clients.producer.ProducerRecord
-import org.scalatest.{FunSuite, Matchers}
 
 import scala.concurrent.duration._
 import scala.concurrent.Await
@@ -13,8 +12,10 @@ import org.apache.kafka.clients.consumer.OffsetCommitCallback
 import org.apache.kafka.common.TopicPartition
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckDrivenPropertyChecks
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers
 
-class MergeByCommitCallbackTest extends FunSuite with KafkaTestKit with ScalaCheckDrivenPropertyChecks with Matchers {
+class MergeByCommitCallbackTest extends AnyFunSuite with KafkaTestKit with ScalaCheckDrivenPropertyChecks with Matchers {
 
   val commitCallbacks: List[Commit] = List.fill(4)(new Commit {
     override def commitBatchSync(batch: Map[TopicPartition, Long]): Task[Unit] = Task.unit

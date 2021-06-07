@@ -196,7 +196,7 @@ lazy val commonDependencies = Seq(
     "org.scala-lang.modules" %% "scala-collection-compat" % "2.4.4" % "provided;optional",
     // For testing ...
     "ch.qos.logback" % "logback-classic" % "1.2.3" % "test",
-    "org.scalatest" %% "scalatest" % "3.0.9" % "test",
+    "org.scalatest" %% "scalatest" % "3.2.9" % "test",
     "org.scalacheck" %% "scalacheck" % "1.15.2" % "test"
   )
 )

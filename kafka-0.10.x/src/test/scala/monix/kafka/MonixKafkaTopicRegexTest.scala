@@ -22,13 +22,13 @@ import monix.execution.Scheduler.Implicits.global
 import monix.kafka.config.AutoOffsetReset
 import monix.reactive.Observable
 import org.apache.kafka.clients.producer.ProducerRecord
-import org.scalatest.FunSuite
 
 import scala.collection.JavaConverters._
 import scala.concurrent.Await
 import scala.concurrent.duration._
+import org.scalatest.funsuite.AnyFunSuite
 
-class MonixKafkaTopicRegexTest extends FunSuite with KafkaTestKit {
+class MonixKafkaTopicRegexTest extends AnyFunSuite with KafkaTestKit {
   val topicsRegex = "monix-kafka-tests-.*".r
   val topicMatchingRegex = "monix-kafka-tests-anything"
 
